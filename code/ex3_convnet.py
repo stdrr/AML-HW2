@@ -208,7 +208,7 @@ def VisualizeFilter(model):
 
         for j in range(ncols): # for each column of the grid
             
-            img_idx = i*j + j # compute the image index in [0, 127]
+            img_idx = i*ncols + j # compute the image index in [0, 127]
 
             for ch_idx in range(C): # for each channel of the image
 
