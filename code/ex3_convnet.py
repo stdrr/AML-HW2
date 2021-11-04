@@ -192,7 +192,7 @@ def VisualizeFilter(model):
 
     # Take the filters of the first convolutional layer
     weights = model.layers[0].weight.detach().numpy() if device == 'cpu' \
-                                                        else model.layers[0].weight.cpu().detach().numpy()
+                                                        else model.layers[0].weight.detach().cpu().numpy()
     _, W, H, C = weights.shape
 
     # Define a lambda function to convert the values of the filters into RGB space
