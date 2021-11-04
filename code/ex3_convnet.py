@@ -112,7 +112,33 @@ class ConvNet(nn.Module):
         layers = []
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+        # Define the hyperparameters of the Convolutional layers 
+        conv_ker_sz = (3,3) # equivalent to conv_ker_sz = 3
+        padding = 'same'
+        conv_stride = 1
 
+        # Define the hyperparameters of the MaxPooling layers
+        max_ker_sz = (2,2) # equivalent to max_ker_sz = 2
+        max_stride = 2
+
+        build_conv_block = lambda in_ch, out_ch: [
+            nn.Conv2d(in_channels=in_ch, 
+                      out_channels=out_ch, 
+                      kernel_size=conv_ker_sz, padding=padding, stride=conv_stride),
+            nn.MaxPool2d(kernel_size=max_ker_sz, stride=max_stride),
+            nn.ReLU()
+        ]
+
+        prev_size = input_size
+
+        for h_size in hidden_layers:
+            layers += build_conv_block(in_ch=prev_size, out_ch=h_size)
+            prev_size = h_size
+
+        layers += [nn.Flatten(), 
+                   nn.Linear(in_features=prev_size, out_features=num_classes)]
+
+        self.layers = nn.Sequential(*layers)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -121,8 +147,8 @@ class ConvNet(nn.Module):
         # TODO: Implement the forward pass computations                                 #
         #################################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-
+        
+        out = self.layers(x)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return out
@@ -140,8 +166,12 @@ def PrintModelSize(model, disp=True):
     # training                                                                      #
     #################################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    
+    model_sz = sum( p.numel() for p in model.parameters() if p.requires_grad ) 
 
-
+    if disp:
+        print(model_sz)
+        return
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     return model_sz
@@ -160,7 +190,41 @@ def VisualizeFilter(model):
     #################################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    # Take the filters of the first convolutional layer
+    weights = model.layers[0].weight.detach().numpy() if device == 'cpu' \
+                                                        else model.layers[0].weight.cpu().detach().numpy()
+    _, W, H, C = weights.shape
+
+    # Define a lambda function to convert the values of the filters into RGB space
+    to_rgb = lambda X, low, high: (255 * (X - low) / (high - low)).astype(np.int32)
+
+    # Define the image grid
+    nrows, ncols = 8, 16
+    padding = 1 # padding between one image and the next
+    grid_shape = (nrows*(W+padding), ncols*(H+padding), C)
+    img_grid = np.zeros(shape=grid_shape, dtype=np.int32)
+
+    for i in range(nrows): # for each row of the grid
+
+        for j in range(ncols): # for each column of the grid
+            
+            img_idx = i*j + j # compute the image index in [0, 127]
+
+            for ch_idx in range(C): # for each channel of the image
+
+                # Take the minumum and maximum values of the pixels of an image
+                min_val = np.min(weights[img_idx, :, :, ch_idx])
+                max_val = np.max(weights[img_idx, :, :, ch_idx])
+                
+                # Copy the pixel RGB values into the image grid
+                top = i*(H+padding) 
+                left = j*(W+padding)
+                img_grid[top:top+H, left:left+W, ch_idx] = to_rgb(weights[img_idx, :, :, ch_idx], min_val, max_val)
+
+    plt.figure(num=1, figsize=(16, 8))
+    plt.title('Filters of the first Convolutional Layer')
+    plt.imshow(img_grid)
+    plt.show()
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
