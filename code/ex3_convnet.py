@@ -171,7 +171,6 @@ def PrintModelSize(model, disp=True):
 
     if disp:
         print(model_sz)
-        return
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     return model_sz
