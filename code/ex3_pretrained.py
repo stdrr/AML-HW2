@@ -27,20 +27,26 @@ print('Using device: %s'%device)
 input_size = 32 * 32 * 3
 layer_config= [512, 256]
 num_classes = 10
-num_epochs = 30
+num_epochs = 50
 batch_size = 200
 learning_rate = 1e-3
 learning_rate_decay = 0.99
 reg=0#0.001
 num_training= 49000
 num_validation =1000
-fine_tune = True
-pretrained=True
+fine_tune = True # False for Q4a
+pretrained = True # False for the baseline model of Q4b
 
 #-------------------------------------------------
 # Load the CIFAR-10 dataset
 #-------------------------------------------------
-data_aug_transforms = [transforms.RandomHorizontalFlip(p=0.5)]#, transforms.RandomGrayscale(p=0.05)]
+data_aug_transforms = [ # data augmentation trasformations of Q3a
+                        transforms.RandomHorizontalFlip(p=0.5),
+                        transforms.RandomApply(nn.ModuleList([transforms.RandomResizedCrop(size=32)]), p=0.2),
+                        transforms.RandomApply(nn.ModuleList([transforms.RandomRotation(degrees=10)]), p=0.3),
+                        transforms.RandomApply(nn.ModuleList([transforms.ColorJitter(brightness=0.2, saturation=0.2, contrast=0.2)]), p=0.1),
+                        transforms.RandomInvert(p=0.05)
+                       ]
 ###############################################################################
 # TODO: Add to data_aug_transforms the best performing data augmentation      #
 # strategy and hyper-parameters as found out in Q3.a                          #
@@ -99,7 +105,23 @@ class VggModel(nn.Module):
         #################################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+        self.model = models.vgg11_bn(pretrained = pretrained) # If True, returns a model pre-trained on ImageNet
+  
+        set_parameter_requires_grad(self.model, not fine_tune) # if fine-tune is True, don't disable the requires_grad
         
+        self.model.avgpool = nn.Identity() # disable the AvgPooling layer
+
+        num_inf = 512 # the output of the last convolutional block has dimension (512,1,1)
+        num_outf = self.model.classifier[0].out_features # take the output dimension of the first Dense layer of VGG-11
+        
+
+        self.model.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_features = num_inf, out_features = num_outf),
+            nn.BatchNorm1d(num_outf),
+            nn.ReLU(),
+            nn.Linear(in_features = num_outf, out_features = n_class)
+        )         
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -109,7 +131,9 @@ class VggModel(nn.Module):
         #################################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        
+        out = x
+        out = self.model.features(out)
+        out = self.model.classifier(out)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return out
@@ -132,7 +156,9 @@ if fine_tune:
     params_to_update = []
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     
-    
+    params_to_update = model.parameters()
+    for name, _ in model.named_parameters():
+        print("\t", name)
     
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 else:
@@ -212,7 +238,7 @@ for epoch in range(num_epochs):
         accuracy = 100 * correct / total
         accuracy_val.append(accuracy)
         
-        print('Validataion accuracy is: {} %'.format(accuracy))
+        print('Validation accuracy is: {} %'.format(accuracy))
         #################################################################################
         # TODO: Q2.b Use the early stopping mechanism from previous questions to save   #
         # the model with the best validation accuracy so-far (use best_model).          #
@@ -220,7 +246,10 @@ for epoch in range(num_epochs):
 
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-
+        if best_accuracy is None or best_accuracy < accuracy_val[-1]:
+          best_accuracy = accuracy_val[-1]
+          sd = model.state_dict()
+          best_model.load_state_dict(sd)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -250,7 +279,8 @@ plt.show()
 #################################################################################
 # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-
+sd = best_model.state_dict()
+model.load_state_dict(sd)
 
 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 

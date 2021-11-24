@@ -30,14 +30,14 @@ print('Using device: %s'%device)
 input_size = 3
 num_classes = 10
 hidden_size = [128, 512, 512, 512, 512]
-num_epochs = 20
+num_epochs = 50
 batch_size = 200
 learning_rate = 2e-3
 learning_rate_decay = 0.95
 reg=0.001
 num_training= 49000
 num_validation =1000
-norm_layer = None #norm_layer = 'BN'
+norm_layer = 'BN'
 print(hidden_size)
 
 
@@ -52,15 +52,16 @@ print(hidden_size)
 data_aug_transforms = []
 # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-data_aug_transforms += [
-                        transforms.RandomHorizontalFlip(),
-                        transforms.RandomVerticalFlip(),
-                        transforms.RandomRotation(degrees=(0.1,0.1)),
-                        transforms.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5))#,
-                        # transforms.RandomInvert(),
-                        # transforms.RandomEqualize(),
-                        # transforms.RandomSolarize(threshold=192.0)
-                       ]
+apply_aug = True
+
+if apply_aug:
+    data_aug_transforms += [
+                            transforms.RandomHorizontalFlip(p=0.5),
+                            transforms.RandomApply(nn.ModuleList([transforms.RandomResizedCrop(size=32)]), p=0.2),
+                            transforms.RandomApply(nn.ModuleList([transforms.RandomRotation(degrees=10)]), p=0.3),
+                            transforms.RandomApply(nn.ModuleList([transforms.ColorJitter(brightness=0.2, saturation=0.2, contrast=0.2)]), p=0.1),
+                            transforms.RandomInvert(p=0.05)
+                           ]
 
 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 norm_transform = transforms.Compose(data_aug_transforms+[transforms.ToTensor(),
@@ -129,16 +130,17 @@ class ConvNet(nn.Module):
         max_ker_sz = (2,2) # equivalent to max_ker_sz = 2
         max_stride = 2
 
-        # Control the addition of the batch normalization layer 
         batch_layer = lambda out_ch: ([] if norm_layer is None else [nn.BatchNorm2d(out_ch)])
 
         build_conv_block = lambda in_ch, out_ch: [
-            nn.Conv2d(in_channels=in_ch, out_channels=out_ch, 
+            nn.Conv2d(in_channels=in_ch, 
+                      out_channels=out_ch, 
                       kernel_size=conv_ker_sz, 
-                      padding=padding, stride=conv_stride)] \
-            + batch_layer(out_ch) \
-            + [nn.MaxPool2d(kernel_size=max_ker_sz, stride=max_stride),
-               nn.ReLU(), nn.Dropout(p=0.1)]
+                      padding=padding, 
+                      stride=conv_stride)] + batch_layer(out_ch) + \
+            [nn.MaxPool2d(kernel_size=max_ker_sz, stride=max_stride), 
+            nn.ReLU(), 
+            nn.Dropout(p=0.1)]
         
         prev_size = input_size
 
@@ -158,8 +160,11 @@ class ConvNet(nn.Module):
         # TODO: Implement the forward pass computations                                 #
         #################################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-        
-        out = self.layers(x)
+
+        out = x
+
+        for layer in self.layers:
+            out = layer(out)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return out
@@ -202,11 +207,10 @@ def VisualizeFilter(model):
 
     weights = model.layers[0].weight.detach() if device == 'cpu' else model.layers[0].weight.detach().cpu()
 
-    # scale the values of the pixels of each filter in [0,1] (same behaviour of [0,255])
-    weights = weights - weights.min() 
+    weights = weights - weights.min()
     weights = weights / weights.max()
     filter_img = torchvision.utils.make_grid(weights, nrow = 16, padding=1)
-    plt.figure(figsize=(16,8)) # change ordering since matplotlib requires images to be (H, W, C)
+    plt.figure(figsize=(16,8))
     plt.imshow(filter_img.permute(1, 2, 0))
     plt.show()
 
@@ -266,6 +270,7 @@ for epoch in range(num_epochs):
         outputs = model(images)
         loss = criterion(outputs, labels)
 
+
         # Backward and optimize
         optimizer.zero_grad()
         loss.backward()
@@ -278,7 +283,6 @@ for epoch in range(num_epochs):
                    .format(epoch+1, num_epochs, i+1, total_step, loss.item()))
             
     loss_train.append(loss_iter/(len(train_loader)*batch_size))
-
     
     # Code to update the lr
     lr *= learning_rate_decay
@@ -316,6 +320,7 @@ for epoch in range(num_epochs):
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
         if best_accuracy is None or best_accuracy < accuracy_val[-1]:
+            best_epoch = epoch
             best_accuracy = accuracy_val[-1]
             sd = model.state_dict()
             best_model.load_state_dict(sd)
@@ -337,11 +342,9 @@ plt.legend()
 plt.show()
 
 plt.figure(3)
-plt.plot(accuracy_val, 'r', label='Val accuracy')
+plt.plot(accuracy_val, 'g', label='Val accuracy')
 plt.legend()
 plt.show()
-
-
 
 #################################################################################
 # TODO: Q2.b Implement the early stopping mechanism to load the weights from the#
