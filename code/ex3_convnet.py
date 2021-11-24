@@ -30,14 +30,14 @@ print('Using device: %s'%device)
 input_size = 3
 num_classes = 10
 hidden_size = [128, 512, 512, 512, 512]
-num_epochs = 20
+num_epochs = 50
 batch_size = 200
 learning_rate = 2e-3
 learning_rate_decay = 0.95
 reg=0.001
 num_training= 49000
 num_validation =1000
-norm_layer = None #norm_layer = 'BN'
+norm_layer = 'BN'
 print(hidden_size)
 
 
@@ -52,7 +52,16 @@ print(hidden_size)
 data_aug_transforms = []
 # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+apply_aug = True
 
+if apply_aug:
+    data_aug_transforms += [
+                            transforms.RandomHorizontalFlip(p=0.5),
+                            transforms.RandomApply(nn.ModuleList([transforms.RandomResizedCrop(size=32)]), p=0.2),
+                            transforms.RandomApply(nn.ModuleList([transforms.RandomRotation(degrees=10)]), p=0.3),
+                            transforms.RandomApply(nn.ModuleList([transforms.ColorJitter(brightness=0.2, saturation=0.2, contrast=0.2)]), p=0.1),
+                            transforms.RandomInvert(p=0.05)
+                           ]
 
 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 norm_transform = transforms.Compose(data_aug_transforms+[transforms.ToTensor(),
@@ -121,14 +130,18 @@ class ConvNet(nn.Module):
         max_ker_sz = (2,2) # equivalent to max_ker_sz = 2
         max_stride = 2
 
+        batch_layer = lambda out_ch: ([] if norm_layer is None else [nn.BatchNorm2d(out_ch)])
+
         build_conv_block = lambda in_ch, out_ch: [
             nn.Conv2d(in_channels=in_ch, 
                       out_channels=out_ch, 
-                      kernel_size=conv_ker_sz, padding=padding, stride=conv_stride),
-            nn.MaxPool2d(kernel_size=max_ker_sz, stride=max_stride),
-            nn.ReLU()
-        ]
-
+                      kernel_size=conv_ker_sz, 
+                      padding=padding, 
+                      stride=conv_stride)] + batch_layer(out_ch) + \
+            [nn.MaxPool2d(kernel_size=max_ker_sz, stride=max_stride), 
+            nn.ReLU(), 
+            nn.Dropout(p=0.1)]
+        
         prev_size = input_size
 
         for h_size in hidden_layers:
@@ -138,7 +151,7 @@ class ConvNet(nn.Module):
         layers += [nn.Flatten(), 
                    nn.Linear(in_features=prev_size, out_features=num_classes)]
 
-        self.layers = nn.Sequential(*layers)
+        self.layers = nn.ModuleList(layers)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -147,8 +160,11 @@ class ConvNet(nn.Module):
         # TODO: Implement the forward pass computations                                 #
         #################################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-        
-        out = self.layers(x)
+
+        out = x
+
+        for layer in self.layers:
+            out = layer(out)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return out
@@ -189,40 +205,13 @@ def VisualizeFilter(model):
     #################################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    # Take the filters of the first convolutional layer
-    weights = model.layers[0].weight.detach().numpy() if device == 'cpu' \
-                                                        else model.layers[0].weight.detach().cpu().numpy()
-    _, W, H, C = weights.shape
+    weights = model.layers[0].weight.detach() if device == 'cpu' else model.layers[0].weight.detach().cpu()
 
-    # Define a lambda function to convert the values of the filters into RGB space
-    to_rgb = lambda X, low, high: (255 * (X - low) / (high - low)).astype(np.int32)
-
-    # Define the image grid
-    nrows, ncols = 8, 16
-    padding = 1 # padding between one image and the next
-    grid_shape = (nrows*(W+padding), ncols*(H+padding), C)
-    img_grid = np.zeros(shape=grid_shape, dtype=np.int32)
-
-    for i in range(nrows): # for each row of the grid
-
-        for j in range(ncols): # for each column of the grid
-            
-            img_idx = i*ncols + j # compute the image index in [0, 127]
-
-            for ch_idx in range(C): # for each channel of the image
-
-                # Take the minumum and maximum values of the pixels of an image
-                min_val = np.min(weights[img_idx, :, :, ch_idx])
-                max_val = np.max(weights[img_idx, :, :, ch_idx])
-                
-                # Copy the pixel RGB values into the image grid
-                top = i*(H+padding) 
-                left = j*(W+padding)
-                img_grid[top:top+H, left:left+W, ch_idx] = to_rgb(weights[img_idx, :, :, ch_idx], min_val, max_val)
-
-    plt.figure(num=1, figsize=(16, 8))
-    plt.title('Filters of the first Convolutional Layer')
-    plt.imshow(img_grid)
+    weights = weights - weights.min()
+    weights = weights / weights.max()
+    filter_img = torchvision.utils.make_grid(weights, nrow = 16, padding=1)
+    plt.figure(figsize=(16,8))
+    plt.imshow(filter_img.permute(1, 2, 0))
     plt.show()
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -281,6 +270,7 @@ for epoch in range(num_epochs):
         outputs = model(images)
         loss = criterion(outputs, labels)
 
+
         # Backward and optimize
         optimizer.zero_grad()
         loss.backward()
@@ -293,7 +283,6 @@ for epoch in range(num_epochs):
                    .format(epoch+1, num_epochs, i+1, total_step, loss.item()))
             
     loss_train.append(loss_iter/(len(train_loader)*batch_size))
-
     
     # Code to update the lr
     lr *= learning_rate_decay
@@ -330,7 +319,11 @@ for epoch in range(num_epochs):
 
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        
+        if best_accuracy is None or best_accuracy < accuracy_val[-1]:
+            best_epoch = epoch
+            best_accuracy = accuracy_val[-1]
+            sd = model.state_dict()
+            best_model.load_state_dict(sd)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -349,11 +342,9 @@ plt.legend()
 plt.show()
 
 plt.figure(3)
-plt.plot(accuracy_val, 'r', label='Val accuracy')
+plt.plot(accuracy_val, 'g', label='Val accuracy')
 plt.legend()
 plt.show()
-
-
 
 #################################################################################
 # TODO: Q2.b Implement the early stopping mechanism to load the weights from the#
@@ -361,7 +352,8 @@ plt.show()
 #################################################################################
 # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-
+sd = best_model.state_dict()
+model.load_state_dict(sd)
 
 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
